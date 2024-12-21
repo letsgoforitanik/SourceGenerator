@@ -25,13 +25,12 @@ public class ToStringGenerator : IIncrementalGenerator
 
         if (!classDeclarationSyntax.AttributeLists.Any()) return false;
 
-        foreach (var attributeList in classDeclarationSyntax.AttributeLists)
+        var attributes = classDeclarationSyntax.AttributeLists.SelectMany(attributeLists => attributeLists.Attributes);
+
+        foreach (var attribute in attributes)
         {
-            foreach (var attribute in attributeList.Attributes)
-            {
-                var attributeName = attribute.Name.ToString();
-                return attributeName is "GenerateToString" or "GenerateToStringAttribute";
-            }
+            var attributeName = attribute.Name.ToString();
+            if (attributeName is "GenerateToString" or "GenerateToStringAttribute") return true;
         }
 
         return false;
