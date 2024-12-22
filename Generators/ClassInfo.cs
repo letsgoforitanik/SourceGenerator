@@ -1,17 +1,10 @@
 namespace Generators;
 
-public class ClassInfo 
+public class ClassInfo(string namespaceName, string className, IEnumerable<string> propertyNames)
 {
-    public ClassInfo(string namespaceName, string className, IEnumerable<string> propertyNames)
-    {
-        NamespaceName = namespaceName;
-        ClassName = className;
-        PropertyNames = propertyNames;
-    }
-    
-    public string NamespaceName { get; }
-    public string ClassName { get; }
-    public IEnumerable<string> PropertyNames { get; }
+    public string NamespaceName { get; } = namespaceName;
+    public string ClassName { get; } = className;
+    public IEnumerable<string> PropertyNames { get; } = propertyNames;
 
     public override bool Equals(object? obj)
     {
