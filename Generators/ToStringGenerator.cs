@@ -10,8 +10,6 @@ namespace Generators;
 public class ToStringGenerator : IIncrementalGenerator
 {
     private static HashSet<INamedTypeSymbol> symbolCache = new();
-
-    private static Dictionary<string, int> dict = new();
     
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -70,13 +68,6 @@ public class ToStringGenerator : IIncrementalGenerator
             var namespaceName = classInfo.NamespaceName;
             var className = classInfo.ClassName;
             var fileName = $"{namespaceName}.{className}.g.cs";
-
-            if (!dict.ContainsKey(fileName))
-            {
-                dict.Add(fileName, 0);
-            }
-
-            dict[fileName]++;
             
             var source = $$"""
                            
