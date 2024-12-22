@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Collections.Immutable;
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -8,72 +9,102 @@ namespace Generators;
 [Generator]
 public class ToStringGenerator : IIncrementalGenerator
 {
+    private static HashSet<INamedTypeSymbol> symbolCache = new();
+
+    private static Dictionary<string, int> dict = new();
+    
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var classes = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: static (node, _) => ShouldTransform(node),
-            transform: static (ctx, _) => ctx.Node as ClassDeclarationSyntax
+        var classInfos = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: static (node, _) => node is ClassDeclarationSyntax,
+            transform: static (ctx, _) => GetSemanticTarget(ctx)
         );
 
-        context.RegisterSourceOutput(classes, static (ctx, source) => Execute(ctx, source!));
-        context.RegisterPostInitializationOutput(static (ctx) => RegisterPostInitializationOutput(ctx));
-    }
-
-    private static bool ShouldTransform(SyntaxNode node)
-    {
-        if (node is not ClassDeclarationSyntax classDeclarationSyntax) return false;
-
-        if (!classDeclarationSyntax.AttributeLists.Any()) return false;
-
-        var attributes = classDeclarationSyntax.AttributeLists.SelectMany(attributeLists => attributeLists.Attributes);
-
-        foreach (var attribute in attributes)
-        {
-            var attributeName = attribute.Name.ToString();
-            if (attributeName is "GenerateToString" or "GenerateToStringAttribute") return true;
-        }
-
-        return false;
-    }
-
-    private static void Execute(SourceProductionContext ctx, ClassDeclarationSyntax classDeclarationSyntax)
-    {
+        var collected = classInfos.Where(info => info is not null).Collect();
         
-        var namespaceName = classDeclarationSyntax.Parent is BaseNamespaceDeclarationSyntax syntax
-            ? syntax.Name.ToString()
-            : string.Empty;
-            
-        var className = classDeclarationSyntax.Identifier.Text;
-        var fileName = $"{namespaceName}.{className}.g.cs";
-
-        var source = $$"""
-                       namespace {{ namespaceName }};
-                       
-                       partial class {{ className }} 
-                       {
-                           public override string ToString() 
-                           {
-                               return {{ GenerateMembersInfo(classDeclarationSyntax) }};
-                           }
-                       } 
-                       
-                       """;
-
-        ctx.AddSource(fileName, source);
+        context.RegisterSourceOutput(collected, static (ctx, source) => Execute(ctx, source!));
+        context.RegisterPostInitializationOutput(static (ctx) => RegisterPostInitializationOutput(ctx));
         
     }
     
-    private static string GenerateMembersInfo(ClassDeclarationSyntax classDeclarationSyntax)
+    private static ClassInfo? GetSemanticTarget(GeneratorSyntaxContext ctx)
+    {
+        
+        var classDeclarationSyntax = ctx.Node as ClassDeclarationSyntax;
+        
+        var classSymbol = ctx.SemanticModel.GetDeclaredSymbol(classDeclarationSyntax!)!;
+
+        if (!symbolCache.Add(classSymbol)) return null;
+
+        var attributeSymbol = ctx.SemanticModel.Compilation.GetTypeByMetadataName("Generators.GenerateToStringAttribute");
+        
+        foreach (var attributeData in classSymbol.GetAttributes())
+        {
+            if (SymbolEqualityComparer.Default.Equals(attributeSymbol, attributeData.AttributeClass))
+            {
+                var namespaceName = classSymbol.ContainingNamespace.ToString();
+                var className = classSymbol.Name;
+                var propertyNames = GetPropertyNames(classSymbol);
+
+                return new ClassInfo(namespaceName, className, propertyNames);
+            }
+        }
+
+        return null;
+
+    }
+    
+    private static IEnumerable<string> GetPropertyNames(INamedTypeSymbol classSymbol)
+    {
+        return classSymbol.GetMembers()
+            .Where(member => member is { Kind : SymbolKind.Property,  DeclaredAccessibility : Accessibility.Public } )
+            .Select(prop => prop.Name);
+    }
+    
+    private static void Execute(SourceProductionContext ctx, ImmutableArray<ClassInfo?> classInfos)
+    {
+        foreach (var classInfo in classInfos)
+        {
+            if (classInfo is null) return;
+            
+            var namespaceName = classInfo.NamespaceName;
+            var className = classInfo.ClassName;
+            var fileName = $"{namespaceName}.{className}.g.cs";
+
+            if (!dict.ContainsKey(fileName))
+            {
+                dict.Add(fileName, 0);
+            }
+
+            dict[fileName]++;
+            
+            var source = $$"""
+                           
+                           namespace {{ namespaceName }};
+
+                           partial class {{ className }} 
+                           {
+                               public override string ToString() 
+                               {
+                                   return {{ GenerateString(classInfo.PropertyNames) }};
+                               }
+                           } 
+
+                           """;
+
+           ctx.AddSource(fileName, source);
+           
+        }
+        
+    }
+    
+    private static string GenerateString(IEnumerable<string> propertyNames)
     {
 
         var stringBuilder = new StringBuilder("$\"");
         
-        foreach (var memberDeclarationSyntax in classDeclarationSyntax.Members)
+        foreach (var propertyName in propertyNames)
         {
-            if (memberDeclarationSyntax is not PropertyDeclarationSyntax propertyDeclarationSyntax) continue;
-            if (!propertyDeclarationSyntax.Modifiers.Any(SyntaxKind.PublicKeyword)) continue;
-                
-            var propertyName = propertyDeclarationSyntax.Identifier.Text;
             stringBuilder.Append($@"{propertyName}:{{{propertyName}}}; ");
         }
 

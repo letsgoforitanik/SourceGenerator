@@ -1,15 +1,11 @@
 ﻿namespace Main;
 
-partial class Program
+class Program
 {
     public static void Main()
     {
-        var person = new Person
-        {
-            FirstName = "Anik",
-            LastName = "Banerjee"
-        };
         
-        Console.WriteLine(person);
+        
+        //Console.WriteLine(employee);
     }
 }
